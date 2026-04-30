@@ -20,6 +20,7 @@ import android.content.res.Configuration;
 import android.content.Context;
 import android.os.Build;
 import android.view.RoundedCorner;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 
@@ -40,6 +41,9 @@ import java.util.UUID;
 public class Inset extends CordovaPlugin {
     public static final int DEFAULT_INSET_MASK = WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.ime();
     public static final boolean DEFAULT_INCLUDE_ROUNDED_CORNERS = true;
+
+    // Flag to control edge-to-edge mode
+    public static boolean edgeToEdgeEnabled = false;
 
     public static class WebviewMask {
         private WebviewMask() {}
@@ -266,25 +270,41 @@ public class Inset extends CordovaPlugin {
         $listeners = new ArrayList<>();
         $listenerMap = new HashMap<>();
 
-        ViewCompat.setOnApplyWindowInsetsListener(webView.getView(), (v, insetProvider) -> {
-            // Cordova's inset listener on the parent rootLayout fires before ours and sets
-            // the WebView's margins to the insets it consumed. Reading those margins here
-            // tells us exactly how much has already been handled so we can subtract it.
-            ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) webView.getView().getLayoutParams();
-            int adjustTop    = lp != null ? lp.topMargin    : 0;
-            int adjustLeft   = lp != null ? lp.leftMargin   : 0;
-            int adjustBottom = lp != null ? lp.bottomMargin : 0;
-            int adjustRight  = lp != null ? lp.rightMargin  : 0;
+        // Set up robust margin handling for both classic and edge-to-edge modes
+        ViewCompat.setOnApplyWindowInsetsListener(this.webView.getView(), (view, insetProvider) -> {
+            ViewGroup.MarginLayoutParams params = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
+            if (edgeToEdgeEnabled) {
+                // Cordova's inset listener on the parent rootLayout fires before ours and sets
+                // the WebView's margins to the insets it consumed. Reading those margins here
+                // tells us exactly how much has already been handled so we can subtract it.
+                ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) webView.getView().getLayoutParams();
+                int adjustTop    = lp != null ? lp.topMargin    : 0;
+                int adjustLeft   = lp != null ? lp.leftMargin   : 0;
+                int adjustBottom = lp != null ? lp.bottomMargin : 0;
+                int adjustRight  = lp != null ? lp.rightMargin  : 0;
 
-            synchronized($listenerLock) {
-                for (Listener listener : $listeners) {
-                    listener.onInsetUpdate(insetProvider, adjustTop, adjustLeft, adjustBottom, adjustRight);
+                synchronized($listenerLock) {
+                    for (Listener listener : $listeners) {
+                        listener.onInsetUpdate(insetProvider, adjustTop, adjustLeft, adjustBottom, adjustRight);
+                    }
+                }
+            } else {
+                // Classic: set all margins to systemBars+displayCutout, bottom=max(navbar/cutout, IME)
+                androidx.core.graphics.Insets barInsets = insetProvider.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
+                int newTop = barInsets.top;
+                int newLeft = barInsets.left;
+                int newRight = barInsets.right;
+                int newBottom = barInsets.bottom;
+                if (params.topMargin != newTop || params.leftMargin != newLeft || params.rightMargin != newRight || params.bottomMargin != newBottom) {
+                    params.topMargin = newTop;
+                    params.leftMargin = newLeft;
+                    params.rightMargin = newRight;
+                    params.bottomMargin = newBottom;
+                    view.setLayoutParams(params);
                 }
             }
-
             return insetProvider;
-        }
-        );
+        });
     }
 
     private void $createNewListener(CallbackContext callback, JSONArray args) {
@@ -343,7 +363,12 @@ public class Inset extends CordovaPlugin {
 
     @Override
     public boolean execute(String action, JSONArray args, CallbackContext callback) throws JSONException, NumberFormatException {
-        if (action.equals("create")) {
+        if (action.equals("setEdgeToEdgeEnabled")) {
+            edgeToEdgeEnabled = args.getBoolean(0);
+            callback.success();
+            return true;
+        }
+        else if (action.equals("create")) {
             $createNewListener(callback, args);
             return true;
         }

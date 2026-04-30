@@ -193,6 +193,23 @@ export class Inset {
             );
         });
     }
+	
+	/**
+     * Sets edge-to-edge mode for the plugin (Android only).
+     * Call before creating any Inset listeners.
+     * @param enabled true to enable edge-to-edge, false for classic
+     */
+    public static setEdgeToEdgeEnabled(enabled: boolean): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            cordova.exec(
+                resolve,
+                reject,
+                SERVICE_NAME,
+                "setEdgeToEdgeEnabled",
+                [!!enabled]
+            );
+        });
+    }
 
     private static $isInitEvent(e: IInsetEvent): e is IInsetInitEvent {
         return e.type === 'init';
